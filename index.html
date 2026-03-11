@@ -206,6 +206,7 @@
   <button class="tab" onclick="showTab('logsale',this)">Log Sale</button>
   <button class="tab" onclick="showTab('reports',this)">Reports</button>
   <button class="tab" onclick="showTab('reps',this)">Sales Reps</button>
+    <button class="tab" onclick="showTab('invlog',this)">Inventory Log</button>
 </div>
 
 <div class="content">
@@ -366,6 +367,25 @@
   </div>
 </div>
 
+<div class="panel" id="panel-invlog">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:12px">
+    <div>
+      <div class="section-title" style="margin-bottom:4px">Inventory Edit Log</div>
+      <div style="color:var(--text-muted);font-size:12px">All product edits are recorded here with user and timestamp</div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn-stock" onclick="renderInvLog()" style="font-size:11px">↻ Refresh</button>
+      <button class="btn-danger" onclick="clearAllData()" style="font-size:11px;padding:6px 14px">⚠ Clear All Data</button>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Date &amp; Time</th><th>User</th><th>Product</th><th>Field Changed</th><th>Old Value</th><th>New Value</th><th>Note</th></tr></thead>
+      <tbody id="invlog-tbody"><tr class="empty-row"><td colspan="7">No edits logged yet.</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
 </div><!-- /content -->
 
 <!-- STOCK MODAL -->
@@ -375,9 +395,37 @@
     <div class="modal-sub">Enter quantity to add to inventory</div>
     <div class="form-group"><label class="form-label">Units to Add</label><input class="form-control" id="modal-qty" type="number" value="1" min="1" /></div>
     <div class="form-group" style="margin-top:12px"><label class="form-label">Cost per Unit (optional override)</label><input class="form-control" id="modal-cost" type="number" placeholder="Use default" /></div>
+    <div class="form-group" style="margin-top:12px"><label class="form-label">Note (optional — reason for change)</label><input class="form-control" id="modal-note" type="text" placeholder="e.g. New shipment received" /></div>
     <div class="modal-row">
       <button class="btn-cancel" onclick="closeModal('stock-modal')">Cancel</button>
       <button class="btn-confirm" onclick="confirmStock()">Add Stock</button>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT PRODUCT MODAL -->
+<div class="modal-overlay" id="edit-product-modal">
+  <div class="modal" style="width:480px">
+    <div class="modal-title">Edit Product</div>
+    <div class="modal-sub">All changes are logged with your name and timestamp</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div class="form-group"><label class="form-label">Product Name</label><input class="form-control" id="edit-product-name" /></div>
+      <div class="form-group"><label class="form-label">Dose</label><input class="form-control" id="edit-product-dose" /></div>
+      <div class="form-group"><label class="form-label">Sale Price</label><input class="form-control" id="edit-product-sale" type="number" min="0" step="0.01" /></div>
+      <div class="form-group"><label class="form-label">Cost Price</label><input class="form-control" id="edit-product-cost" type="number" min="0" step="0.01" /></div>
+      <div class="form-group"><label class="form-label">Stock (manual adjust)</label><input class="form-control" id="edit-product-stock" type="number" min="0" /></div>
+      <div class="form-group"><label class="form-label">Category</label>
+        <select class="form-control" id="edit-product-category">
+          <option>Aesthetic &amp; Skin</option><option>Cellular Vitality</option><option>Essentials</option>
+          <option>Intimacy &amp; Performance</option><option>Metabolic Optimization</option>
+          <option>Muscle Growth &amp; Performance</option><option>Recovery &amp; Regeneration</option><option>Other</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:16px"><label class="form-label">Reason for Edit (required for log)</label><input class="form-control" id="edit-product-note" placeholder="e.g. Price adjustment, stock correction..." /></div>
+    <div class="modal-row">
+      <button class="btn-cancel" onclick="closeModal('edit-product-modal')">Cancel</button>
+      <button class="btn-confirm" onclick="confirmEditProduct()">Save Changes</button>
     </div>
   </div>
 </div>
@@ -433,10 +481,12 @@ const auth = firebase.auth();
 let products = [];
 let sales    = [];
 let reps     = [];
+let inventoryLog = [];
 let stockModal = { idx: null };
+let editProductModal = { idx: null };
 let selectedRepId = null;
 let repChart = null;
-let dbLoaded = { products: false, sales: false, reps: false };
+let dbLoaded = { products: false, sales: false, reps: false, inventoryLog: false };
 
 const AVATAR_COLORS = ['#40c8f4','#f44336','#ff9800','#9c27b0','#4caf50','#e91e63','#00bcd4','#ff5722'];
 
@@ -490,9 +540,30 @@ function saveReps() {
   reps.forEach(r => { repsObj[r.id] = r; });
   db.ref('reps').set(repsObj);
 }
+function saveInventoryLog() {
+  const logObj = {};
+  inventoryLog.forEach(l => { logObj[l.id] = l; });
+  db.ref('inventoryLog').set(logObj);
+}
+function addInventoryLog(productId, productName, field, oldVal, newVal, note) {
+  const user = auth.currentUser ? auth.currentUser.email : 'unknown';
+  const entry = {
+    id: Date.now(),
+    timestamp: new Date().toISOString(),
+    user,
+    productId,
+    productName,
+    field,
+    oldVal,
+    newVal,
+    note: note || ''
+  };
+  inventoryLog.push(entry);
+  saveInventoryLog();
+}
 
 function checkAllLoaded() {
-  if(dbLoaded.products && dbLoaded.sales && dbLoaded.reps) {
+  if(dbLoaded.products && dbLoaded.sales && dbLoaded.reps && dbLoaded.inventoryLog) {
     document.getElementById('loading-overlay').style.display='none';
     setDate(); updateKPIs(); renderOverview();
   }
@@ -565,6 +636,13 @@ function startDbListeners() {
     checkAllLoaded();
     refreshCurrentTab();
   });
+
+  db.ref('inventoryLog').on('value', snap => {
+    inventoryLog = objToArr(snap.val());
+    dbLoaded.inventoryLog = true;
+    checkAllLoaded();
+    if(dbLoaded.products && dbLoaded.sales && dbLoaded.reps) refreshCurrentTab();
+  });
 }
 
 function refreshCurrentTab() {
@@ -578,6 +656,7 @@ function refreshCurrentTab() {
   if(id==='logsale')   renderLogSale();
   if(id==='reports')   renderReports();
   if(id==='reps')      renderReps();
+  if(id==='invlog')    renderInvLog();
 }
 
 // ===================== COMPUTED =====================
@@ -632,6 +711,7 @@ function showTab(name, btn) {
   if(name==='logsale')   renderLogSale();
   if(name==='reports')   renderReports();
   if(name==='reps')      renderReps();
+  if(name==='invlog')    renderInvLog();
 }
 
 // ===================== DATE =====================
@@ -696,14 +776,17 @@ function renderInventory() {
     <tr>
       <td class="product-name">${p.name}</td><td>${p.dose}</td><td>${p.category}</td>
       <td class="blue">${fmt(p.salePrice)}</td>
-      <td><input class="stock-input" type="number" value="${p.costPrice}" min="0" onchange="updateCost(${i},this.value)"/></td>
+      <td class="blue">${fmt(p.costPrice)}</td>
       <td style="font-family:var(--mono)">${p.stock}</td>
       <td class="blue">${fmt(p.stock*p.costPrice)}</td>
       <td><span class="${p.stock>0?'badge-in':'badge-out'}">${p.stock>0?'IN':'OUT'}</span></td>
-      <td><button class="btn-stock" onclick="openStockModal(${i})">+ STOCK</button></td>
+      <td style="display:flex;gap:6px">
+        <button class="btn-stock" onclick="openStockModal(${i})">+ STOCK</button>
+        <button class="btn-stock" onclick="openEditProductModal(${i})" style="background:#2a2f2d;color:var(--text-muted)">EDIT</button>
+        <button class="btn-danger" onclick="deleteProduct(${i})" style="padding:4px 10px;font-size:10px">DEL</button>
+      </td>
     </tr>`).join('');
 }
-function updateCost(i,val){products[i].costPrice=parseFloat(val)||0;saveProducts();updateKPIs();}
 function addProduct(){
   const name=document.getElementById('new-name').value.trim();
   const dose=document.getElementById('new-dose').value.trim();
@@ -719,6 +802,45 @@ function addProduct(){
   document.getElementById('new-cost').value='';
   renderInventory();updateKPIs();populateSaleDropdown();showToast('Product added');
 }
+function deleteProduct(i){
+  if(!confirm(`Delete ${products[i].name} ${products[i].dose}? This cannot be undone.`)) return;
+  addInventoryLog(products[i].id, products[i].name+' '+products[i].dose, 'Deleted', 'exists', 'deleted', 'Product removed');
+  products.splice(i,1);
+  saveProducts();renderInventory();updateKPIs();populateSaleDropdown();showToast('Product deleted');
+}
+function openEditProductModal(i){
+  editProductModal.idx=i;
+  const p=products[i];
+  document.getElementById('edit-product-name').value=p.name;
+  document.getElementById('edit-product-dose').value=p.dose;
+  document.getElementById('edit-product-category').value=p.category;
+  document.getElementById('edit-product-sale').value=p.salePrice;
+  document.getElementById('edit-product-cost').value=p.costPrice;
+  document.getElementById('edit-product-stock').value=p.stock;
+  document.getElementById('edit-product-note').value='';
+  document.getElementById('edit-product-modal').classList.add('open');
+}
+function confirmEditProduct(){
+  const i=editProductModal.idx;
+  const p=products[i];
+  const newName=document.getElementById('edit-product-name').value.trim();
+  const newDose=document.getElementById('edit-product-dose').value.trim();
+  const newCat=document.getElementById('edit-product-category').value;
+  const newSale=parseFloat(document.getElementById('edit-product-sale').value)||0;
+  const newCost=parseFloat(document.getElementById('edit-product-cost').value)||0;
+  const newStock=parseInt(document.getElementById('edit-product-stock').value)||0;
+  const note=document.getElementById('edit-product-note').value.trim();
+  if(!newName){showToast('Enter a product name');return;}
+  const label=p.name+' '+p.dose;
+  if(p.name!==newName||p.dose!==newDose) addInventoryLog(p.id,label,'Name/Dose',p.name+' '+p.dose,newName+' '+newDose,note);
+  if(p.salePrice!==newSale) addInventoryLog(p.id,label,'Sale Price',p.salePrice,newSale,note);
+  if(p.costPrice!==newCost) addInventoryLog(p.id,label,'Cost Price',p.costPrice,newCost,note);
+  if(p.stock!==newStock) addInventoryLog(p.id,label,'Stock',p.stock,newStock,note);
+  if(p.category!==newCat) addInventoryLog(p.id,label,'Category',p.category,newCat,note);
+  p.name=newName; p.dose=newDose; p.category=newCat;
+  p.salePrice=newSale; p.costPrice=newCost; p.stock=newStock;
+  saveProducts();closeModal('edit-product-modal');renderInventory();updateKPIs();populateSaleDropdown();showToast('Product updated');
+}
 function openStockModal(i){
   stockModal.idx=i;
   document.getElementById('modal-product-name').textContent=products[i].name+' — Add Stock';
@@ -730,9 +852,14 @@ function confirmStock(){
   const i=stockModal.idx;
   const qty=parseInt(document.getElementById('modal-qty').value)||0;
   const co=document.getElementById('modal-cost').value;
+  const note=document.getElementById('modal-note').value.trim();
   if(qty<1){showToast('Enter valid quantity');return;}
+  const oldStock=products[i].stock;
+  const oldCost=products[i].costPrice;
   products[i].stock+=qty;
   if(co!=='') products[i].costPrice=parseFloat(co)||products[i].costPrice;
+  addInventoryLog(products[i].id, products[i].name+' '+products[i].dose, 'Stock', oldStock, products[i].stock, note);
+  if(co!=='' && parseFloat(co)!==oldCost) addInventoryLog(products[i].id, products[i].name+' '+products[i].dose, 'Cost Price', oldCost, products[i].costPrice, note);
   saveProducts();closeModal('stock-modal');renderInventory();updateKPIs();
   showToast(`+${qty} units added to ${products[i].name}`);
 }
@@ -1048,6 +1175,41 @@ function deleteRep(){
   document.getElementById('rep-detail-placeholder').style.display='flex';
   document.getElementById('rep-detail-content').style.display='none';
   saveSales();saveReps();renderReps();populateRepDropdown();showToast('Rep removed');
+}
+
+// ===================== INVENTORY LOG =====================
+function renderInvLog(){
+  const tbody=document.getElementById('invlog-tbody');
+  if(inventoryLog.length===0){tbody.innerHTML='<tr class="empty-row"><td colspan="7">No edits logged yet.</td></tr>';return;}
+  const sorted=[...inventoryLog].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
+  tbody.innerHTML=sorted.map(l=>{
+    const d=new Date(l.timestamp);
+    const dateStr=d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    const timeStr=d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+    const oldDisplay=typeof l.oldVal==='number'&&l.field!=='Stock'&&l.field!=='Deleted'?fmt(l.oldVal):l.oldVal;
+    const newDisplay=typeof l.newVal==='number'&&l.field!=='Stock'&&l.field!=='Deleted'?fmt(l.newVal):l.newVal;
+    return `<tr>
+      <td style="font-family:var(--mono);font-size:11px;white-space:nowrap">${dateStr} ${timeStr}</td>
+      <td style="color:var(--blue);font-size:12px">${l.user||'—'}</td>
+      <td class="product-name">${l.productName||'—'}</td>
+      <td style="color:var(--text-muted);font-size:12px">${l.field}</td>
+      <td style="color:#f44336;font-family:var(--mono);font-size:12px">${oldDisplay}</td>
+      <td style="color:#4caf50;font-family:var(--mono);font-size:12px">${newDisplay}</td>
+      <td style="color:var(--text-muted);font-size:12px">${l.note||'—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function clearAllData(){
+  if(!confirm('Are you sure you want to delete ALL sales, products, reps and log entries? This cannot be undone.')) return;
+  if(!confirm('This will permanently delete everything. Are you absolutely sure?')) return;
+  products=[]; sales=[]; reps=[]; inventoryLog=[];
+  db.ref('products').remove();
+  db.ref('sales').remove();
+  db.ref('reps').remove();
+  db.ref('inventoryLog').remove();
+  renderInventory(); renderLogSale(); renderReps(); renderInvLog(); updateKPIs();
+  showToast('All data cleared');
 }
 
 // ===================== MODALS =====================
